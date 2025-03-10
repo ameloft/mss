@@ -22,7 +22,7 @@ def handle_client(client_socket):
             clients.remove(client_socket)
             break
 
-def start_server(host='0.0.0.0', port=1111):
+def start_server(host='0.0.0.0', port=12345):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((host, port))
     server.listen()
