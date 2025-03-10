@@ -1,1 +1,4 @@
-Для використання потрбіно в коді(client.py) змінити IP на свій//To use it, you need to change the IP on your computer in the code (client.py).
+Для запуску тестовї версії месенджера потрібно воконати наступні кроки:
+    1.Завантажити останю версію python https://www.python.org/(поставте галочку в PATH)
+    2.В cliet.py потрібно змінити IP
+    3.Запусти server.py потім client.py
