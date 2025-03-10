@@ -1,40 +1,57 @@
-import socket
-import threading
+from flask import Flask, request
+from flask_socketio import SocketIO, emit
 
-clients = []
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your_secret_key'
+socketio = SocketIO(app)
 
-def broadcast(message, client_socket):
-    for client in clients:
-        if client != client_socket:
-            try:
-                client.send(message)
-            except:
-                client.close()
-                clients.remove(client)
+# Словник для зберігання ніків та їх socket IDs
+users = {}
 
-def handle_client(client_socket):
-    while True:
-        try:
-            message = client_socket.recv(1024)
-            broadcast(message, client_socket)
-        except:
-            client_socket.close()
-            clients.remove(client_socket)
+@app.route('/')
+def index():
+    return "Chat Server is running!"
+
+@socketio.on('connect')
+def handle_connect():
+    print("A user connected")
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    for nickname, sid in list(users.items()):
+        if sid == request.sid:
+            del users[nickname]
+            emit('user_disconnected', nickname, broadcast=True)
+            emit('user_list', list(users.keys()), broadcast=True)  # Оновлення списку користувачів
             break
 
-def start_server(host='0.0.0.0', port=12345):
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind((host, port))
-    server.listen()
+@socketio.on('set_nickname')
+def handle_set_nickname(nickname):
+    users[nickname] = request.sid
+    emit('user_connected', nickname, broadcast=True)
+    emit('user_list', list(users.keys()), broadcast=True)  # Оновлення списку користувачів
+    print(f"User {nickname} joined the chat")
 
-    print(f"Сервер запущено на {host}:{port}")
+@socketio.on('send_message')
+def handle_send_message(data):
+    print(f"Received message: {data}")  # Логування
+    recipient = data.get('recipient')
+    message = data.get('message')
+    sender = [nick for nick, sid in users.items() if sid == request.sid][0]
 
-    while True:
-        client_socket, client_address = server.accept()
-        print(f"Підключено {client_address}")
-        clients.append(client_socket)
-        thread = threading.Thread(target=handle_client, args=(client_socket,))
-        thread.start()
+    if recipient == "all":  # Групове повідомлення
+        print(f"Broadcasting message to all: {message}")  # Логування
+        emit('receive_message', {'sender': sender, 'message': message}, broadcast=True)
+    else:  # Приватне повідомлення
+        recipient_sid = users.get(recipient)
+        if recipient_sid:
+            print(f"Sending private message to {recipient}: {message}")  # Логування
+            emit('receive_message', {'sender': sender, 'message': message}, room=recipient_sid)
+            emit('receive_message', {'sender': sender, 'message': message}, room=request.sid)  # Відправка собі
 
-if __name__ == "__main__":
-    start_server()
+@socketio.on('get_users')
+def handle_get_users():
+    emit('user_list', list(users.keys()))
+
+if __name__ == '__main__':
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
