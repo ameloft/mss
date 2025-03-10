@@ -11,7 +11,7 @@ def receive_messages(client_socket):
             client_socket.close()
             break
 
-def start_client(host='192.168.1.4', port=12345):
+def start_client(host='127.0.0.1', port=12345):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((host, port))
 
