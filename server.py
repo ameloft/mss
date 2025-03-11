@@ -1,5 +1,6 @@
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
+import sqlite3
 import base64
 import os
 
@@ -7,13 +8,29 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
 socketio = SocketIO(app)
 
+# Підключення до бази даних
+def get_db_connection():
+    conn = sqlite3.connect('users.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+# Ініціалізація бази даних
+def init_db():
+    conn = get_db_connection()
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
 # Словник для зберігання ніків та їх socket IDs
 users = {}
-
-# Папка для зберігання файлів
-UPLOAD_FOLDER = 'uploads'
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
 
 @app.route('/')
 def index():
@@ -32,12 +49,34 @@ def handle_disconnect():
             emit('user_list', list(users.keys()), broadcast=True)  # Оновлення списку користувачів
             break
 
-@socketio.on('set_nickname')
-def handle_set_nickname(nickname):
-    users[nickname] = request.sid
-    emit('user_connected', nickname, broadcast=True)
-    emit('user_list', list(users.keys()), broadcast=True)  # Оновлення списку користувачів
-    print(f"User {nickname} joined the chat")
+@socketio.on('register')
+def handle_register(data):
+    username = data.get('username')
+    password = data.get('password')
+    conn = get_db_connection()
+    try:
+        conn.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, password))
+        conn.commit()
+        emit('registration_success', {'message': 'Registration successful!'})
+    except sqlite3.IntegrityError:
+        emit('registration_error', {'message': 'Username already exists!'})
+    finally:
+        conn.close()
+
+@socketio.on('login')
+def handle_login(data):
+    username = data.get('username')
+    password = data.get('password')
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM users WHERE username = ? AND password = ?', (username, password)).fetchone()
+    conn.close()
+    if user:
+        users[username] = request.sid
+        emit('login_success', {'message': 'Login successful!', 'username': username})
+        emit('user_connected', username, broadcast=True)
+        emit('user_list', list(users.keys()), broadcast=True)
+    else:
+        emit('login_error', {'message': 'Invalid username or password!'})
 
 @socketio.on('send_message')
 def handle_send_message(data):
@@ -65,7 +104,7 @@ def handle_send_file(data):
     sender = [nick for nick, sid in users.items() if sid == request.sid][0]
 
     # Збереження файлу на сервері
-    file_path = os.path.join(UPLOAD_FOLDER, file_name)
+    file_path = os.path.join('uploads', file_name)
     with open(file_path, "wb") as file:
         file.write(base64.b64decode(file_data))
 
@@ -84,4 +123,6 @@ def handle_get_users():
     emit('user_list', list(users.keys()))
 
 if __name__ == '__main__':
+    if not os.path.exists('uploads'):
+        os.makedirs('uploads')
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
